@@ -1,0 +1,74 @@
+Metadata-Version: 2.4
+Name: quant-telegram
+Version: 0.1.0
+Summary: A minimal, reusable Telegram bot library for quantitative trading notifications
+Author: Quant Trader
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: python-telegram-bot>=20.0
+Requires-Dist: aiohttp>=3.8.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: black>=22.0.0; extra == "dev"
+Requires-Dist: isort>=5.10.0; extra == "dev"
+Dynamic: author
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# Quant Telegram Bot
+
+A minimal, reusable Telegram bot library for quantitative trading notifications.
+
+## Features
+
+- **Async-first**: Non-blocking integration with trading loops
+- **Smart throttling**: Intelligent rate limiting by message type
+- **Template-based**: Pre-built message formats for common scenarios
+- **Minimal dependencies**: Only `python-telegram-bot` + standard library
+- **Context-aware**: Emergency alerts bypass throttling
+
+## Quick Start
+
+```python
+from quant_telegram import TelegramBot
+
+bot = TelegramBot()
+
+# Price alerts
+await bot.price_alert("BTCUSDT", 45000, "spike", change_pct=5.2)
+
+# Position updates
+await bot.position_update("hyperliquid", "ETHUSDT", 1.5, 250.0, action="opened")
+
+# Emergency notifications (no throttling)
+await bot.emergency_alert("Funding arbitrage opportunity: 15bps spread!")
+```
+
+## Configuration
+
+Set environment variables:
+```bash
+export TELEGRAM_BOT_TOKEN="your_bot_token"
+export TELEGRAM_CHAT_ID="your_chat_id"
+```
+
+## Installation
+
+```bash
+pip install -e .
+```
