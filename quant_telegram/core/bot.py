@@ -1,6 +1,7 @@
 """Main TelegramBot class for quant-telegram."""
 
 import asyncio
+import functools
 import logging
 from typing import Optional, Union, Dict, Any, Callable, List, Tuple
 
@@ -43,23 +44,33 @@ class TelegramBot:
         else:
             self._logger.warning("python-telegram-bot not installed. Bot will log messages instead.")
     
-    async def _send_message(self, message: str) -> bool:
-        """Send message to Telegram chat."""
+    async def _send_message(self, message: str, message_thread_id: int = None) -> bool:
+        """Send message to Telegram chat.
+
+        Args:
+            message: The message text to send.
+            message_thread_id: Optional topic/thread ID for forum groups.
+                              Overrides config.message_thread_id if provided.
+        """
         try:
             if self._bot is not None:
-                await self._bot.send_message(
+                thread_id = message_thread_id if message_thread_id is not None else self.config.message_thread_id
+                send_kwargs = dict(
                     chat_id=self.config.chat_id,
                     text=message,
                     parse_mode=self.config.parse_mode,
                     disable_web_page_preview=self.config.disable_web_page_preview
                 )
+                if thread_id is not None:
+                    send_kwargs['message_thread_id'] = thread_id
+                await self._bot.send_message(**send_kwargs)
                 self._logger.debug(f"Message sent: {message[:100]}...")
                 return True
             else:
                 # Fallback: log the message
                 self._logger.info(f"TELEGRAM: {message}")
                 return True
-                
+
         except TelegramError as e:
             self._logger.error(f"Failed to send Telegram message: {e}")
             return False
@@ -67,9 +78,10 @@ class TelegramBot:
             self._logger.error(f"Unexpected error sending message: {e}")
             return False
     
-    async def price_alert(self, symbol: str, price: float, trigger_type: str, 
+    async def price_alert(self, symbol: str, price: float, trigger_type: str,
                          change_pct: Optional[float] = None, **kwargs) -> bool:
         """Send price alert notification."""
+        thread_id = kwargs.pop('message_thread_id', None)
         message = self.formatter.price_alert(
             symbol=symbol,
             price=price,
@@ -77,25 +89,28 @@ class TelegramBot:
             change_pct=change_pct,
             **kwargs
         )
-        
+
+        send_fn = functools.partial(self._send_message, message_thread_id=thread_id) if thread_id is not None else self._send_message
+
         # Use symbol as throttle key for per-symbol rate limiting
         throttle_key = symbol
-        
+
         if await self.throttle.should_send_immediately(
             "price_alert", self.config.throttle.price_alert, throttle_key
         ):
-            return await self._send_message(message)
+            return await send_fn(message)
         else:
             # Queue for batched sending
             await self.throttle.queue_message(
-                "price_alert", self.config.throttle.price_alert, 
-                message, self._send_message, throttle_key
+                "price_alert", self.config.throttle.price_alert,
+                message, send_fn, throttle_key
             )
             return True
     
-    async def position_update(self, exchange: str, symbol: str, size: float, 
+    async def position_update(self, exchange: str, symbol: str, size: float,
                             pnl: float, action: str = "update", **kwargs) -> bool:
         """Send position update notification."""
+        thread_id = kwargs.pop('message_thread_id', None)
         message = self.formatter.position_update(
             exchange=exchange,
             symbol=symbol,
@@ -104,57 +119,74 @@ class TelegramBot:
             action=action,
             **kwargs
         )
-        
+
+        send_fn = functools.partial(self._send_message, message_thread_id=thread_id) if thread_id is not None else self._send_message
+
         # Use exchange as throttle key for batching by exchange
         throttle_key = exchange
-        
+
         if await self.throttle.should_send_immediately(
             "position_update", self.config.throttle.position_update, throttle_key
         ):
-            return await self._send_message(message)
+            return await send_fn(message)
         else:
             await self.throttle.queue_message(
                 "position_update", self.config.throttle.position_update,
-                message, self._send_message, throttle_key
+                message, send_fn, throttle_key
             )
             return True
     
     async def system_alert(self, level: str, message: str, **kwargs) -> bool:
         """Send system alert notification."""
+        thread_id = kwargs.pop('message_thread_id', None)
         formatted_message = self.formatter.system_alert(level, message, **kwargs)
-        
+
+        send_fn = functools.partial(self._send_message, message_thread_id=thread_id) if thread_id is not None else self._send_message
+
         # Use level as throttle key
         throttle_key = level
-        
+
         if await self.throttle.should_send_immediately(
             "system_alert", self.config.throttle.system_alert, throttle_key
         ):
-            return await self._send_message(formatted_message)
+            return await send_fn(formatted_message)
         else:
             await self.throttle.queue_message(
                 "system_alert", self.config.throttle.system_alert,
-                formatted_message, self._send_message, throttle_key
+                formatted_message, send_fn, throttle_key
             )
             return True
     
     async def emergency_alert(self, message: str, **kwargs) -> bool:
         """Send emergency alert (bypasses all throttling)."""
+        thread_id = kwargs.pop('message_thread_id', None)
         formatted_message = self.formatter.emergency_alert(message, **kwargs)
-        return await self._send_message(formatted_message)
+        return await self._send_message(formatted_message, message_thread_id=thread_id)
     
-    async def custom_message(self, message: str, throttle_seconds: int = 0, 
+    async def custom_message(self, message: str, throttle_seconds: int = 0,
                            throttle_key: str = "custom", **kwargs) -> bool:
-        """Send custom formatted message."""
+        """Send custom formatted message.
+
+        Args:
+            message: The message text to send.
+            throttle_seconds: Throttle interval. 0 = send immediately.
+            throttle_key: Key for throttle grouping.
+            **kwargs: Optional keyword arguments.
+                message_thread_id (int): Topic/thread ID for forum groups.
+        """
+        thread_id = kwargs.pop('message_thread_id', None)
+        send_fn = functools.partial(self._send_message, message_thread_id=thread_id) if thread_id is not None else self._send_message
+
         if throttle_seconds == 0:
-            return await self._send_message(message)
-        
+            return await send_fn(message)
+
         if await self.throttle.should_send_immediately(
             "custom", throttle_seconds, throttle_key
         ):
-            return await self._send_message(message)
+            return await send_fn(message)
         else:
             await self.throttle.queue_message(
-                "custom", throttle_seconds, message, self._send_message, throttle_key
+                "custom", throttle_seconds, message, send_fn, throttle_key
             )
             return True
     
@@ -199,22 +231,23 @@ class TelegramBot:
         self._logger.info(f"Interactive features enabled with {len(self.commands_registry)} commands")
         return True
     
-    async def send_message_with_buttons(self, message_type: str, data_callback_name: str, 
+    async def send_message_with_buttons(self, message_type: str, data_callback_name: str,
                                       formatter_method: str, chat_id=None, **kwargs):
         """Send a message with configured buttons."""
+        thread_id = kwargs.pop('message_thread_id', None)
         try:
             # Get data from callback
             if data_callback_name in self.callbacks_registry:
                 data = await self.callbacks_registry[data_callback_name]()
             else:
                 data = []
-            
+
             # Format message using specified formatter method
             if hasattr(self.formatter, formatter_method):
                 message = getattr(self.formatter, formatter_method)(data, **kwargs)
             else:
                 message = str(data)
-            
+
             # Build buttons if configured
             reply_markup = None
             if message_type in self.button_configs and InlineKeyboardMarkup:
@@ -222,16 +255,25 @@ class TelegramBot:
                 for button_text, callback_data, callback_name in self.button_configs[message_type]['buttons']:
                     buttons.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
                 reply_markup = InlineKeyboardMarkup(buttons)
-            
+
             target_chat_id = chat_id or self.config.chat_id
-            
+            resolved_thread_id = thread_id if thread_id is not None else self.config.message_thread_id
+
             if reply_markup:
-                await self._bot.send_message(target_chat_id, message, reply_markup=reply_markup, parse_mode='HTML')
+                send_kwargs = dict(
+                    chat_id=target_chat_id,
+                    text=message,
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+                if resolved_thread_id is not None:
+                    send_kwargs['message_thread_id'] = resolved_thread_id
+                await self._bot.send_message(**send_kwargs)
             else:
-                await self._send_message(message)
-                
+                await self._send_message(message, message_thread_id=thread_id)
+
             return True
-            
+
         except Exception as e:
             self._logger.error(f"Failed to send {message_type} message: {e}")
             await self._send_message(f"ERROR: {e}")

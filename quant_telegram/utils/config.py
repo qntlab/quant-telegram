@@ -1,7 +1,7 @@
 """Configuration management for quant-telegram."""
 
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from dataclasses import dataclass
 
 
@@ -17,12 +17,13 @@ class ThrottleSettings:
 @dataclass
 class Config:
     """Main configuration class for quant-telegram."""
-    
+
     bot_token: str
     chat_id: str
     throttle: ThrottleSettings
     parse_mode: str = "HTML"
     disable_web_page_preview: bool = True
+    message_thread_id: Optional[int] = None
     
     @classmethod
     def from_env(cls, **overrides) -> "Config":
@@ -43,13 +44,17 @@ class Config:
             system_alert=int(os.getenv("THROTTLE_SYSTEM_ALERT", 120)),
         )
         
+        thread_id_str = os.getenv("TELEGRAM_MESSAGE_THREAD_ID")
+        message_thread_id = int(thread_id_str) if thread_id_str else None
+
         config = cls(
             bot_token=bot_token,
             chat_id=chat_id,
             throttle=throttle_settings,
+            message_thread_id=message_thread_id,
             **overrides
         )
-        
+
         return config
     
     @classmethod
@@ -64,4 +69,5 @@ class Config:
             throttle=throttle_settings,
             parse_mode=config_dict.get("parse_mode", "HTML"),
             disable_web_page_preview=config_dict.get("disable_web_page_preview", True),
+            message_thread_id=config_dict.get("message_thread_id"),
         )
